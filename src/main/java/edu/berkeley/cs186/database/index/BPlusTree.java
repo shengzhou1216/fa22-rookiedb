@@ -9,6 +9,7 @@ import edu.berkeley.cs186.database.databox.DataBox;
 import edu.berkeley.cs186.database.databox.Type;
 import edu.berkeley.cs186.database.io.DiskSpaceManager;
 import edu.berkeley.cs186.database.memory.BufferManager;
+import edu.berkeley.cs186.database.memory.Page;
 import edu.berkeley.cs186.database.table.RecordId;
 
 import java.io.FileWriter;
@@ -205,8 +206,7 @@ public class BPlusTree {
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.NL);
 
         // TODO(proj2): Return a BPlusTreeIterator.
-
-        return Collections.emptyIterator();
+        return new BPlusTreeIterator(root.getLeftmostLeaf());
     }
 
     /**
@@ -238,8 +238,7 @@ public class BPlusTree {
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.NL);
 
         // TODO(proj2): Return a BPlusTreeIterator.
-
-        return Collections.emptyIterator();
+        return new BPlusTreeIterator(root.get(key));
     }
 
     /**
@@ -260,6 +259,7 @@ public class BPlusTree {
         // Note: You should NOT update the root variable directly.
         // Use the provided updateRoot() helper method to change
         // the tree's root if the old root splits.
+        
         if (root.get(key).put(key, rid).isPresent()) { // split
             updateRoot(root);
         }
@@ -429,18 +429,27 @@ public class BPlusTree {
     private class BPlusTreeIterator implements Iterator<RecordId> {
         // TODO(proj2): Add whatever fields and constructors you want here.
 
+        Iterator<RecordId> iterator;
+
+        public BPlusTreeIterator(LeafNode leafNode) {
+            if (leafNode != null) {
+                this.iterator = leafNode.scanAll();
+            }
+        }
+
         @Override
         public boolean hasNext() {
             // TODO(proj2): implement
-
-            return false;
+            return this.iterator != null && this.iterator.hasNext();
         }
 
         @Override
         public RecordId next() {
             // TODO(proj2): implement
-
-            throw new NoSuchElementException();
+            if (!this.hasNext()) {
+                throw new NoSuchElementException();
+            }
+            return this.iterator.next();
         }
     }
 }

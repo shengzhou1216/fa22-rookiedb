@@ -102,16 +102,34 @@ class InnerNode extends BPlusNode {
     @Override
     public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
         // TODO(proj2): implement
-        int n = keys.size();
-        keys.add(key);
-        if (n == 2 * metadata.getOrder()) { // need split
-            // sort
-            Collections.sort(keys);
+
+        // put in leaf node
+        Optional<Pair<DataBox, Long>> r = get(key).put(key, rid);
+        r.ifPresent((Pair<DataBox, Long> pair) -> {
+            // insert a new index entry into parent
+            keys.add(pair.getFirst()); 
+            children.add(pair.getSecond());
+        });
+        // sort
+        Collections.sort(keys);
+        int order = metadata.getOrder();
+        int overflow = 2 * order + 1;
+        if (keys.size() == 2 * order + 1) { // need split
             // split key
-            DataBox splitKey = keys.get(n);
+            DataBox splitKey = keys.get(order);
+
+            // remove splited keys
+            List<DataBox> rightKeys = keys.subList(order, overflow);
+            keys = keys.subList(0, order);
+
+            new InnerNode(metadata, bufferManager, rightKeys, children, treeContext);
+
+            sync();
+
             // return pair(split_key, right_node_page_num)
             return Optional.ofNullable(new Pair<DataBox, Long>(splitKey, page.getPageNum() + 1));
         }
+        sync();
         return Optional.empty();
     }
 

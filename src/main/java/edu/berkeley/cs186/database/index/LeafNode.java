@@ -171,21 +171,41 @@ class LeafNode extends BPlusNode {
         if (keys.contains(key)) {
             throw new BPlusTreeException("insert duplicate key in leaf node.");
         }
-        int n = keys.size();
+
         // add key and rid
         keys.add(key);
         rids.add(rid);
         // sort
         Collections.sort(keys);
         Collections.sort(rids);
+
+        int order = metadata.getOrder();
+        int overflow = 2 * order + 1;
+        if (keys.size() == overflow) { // need split
+            // get split key
+            DataBox splitKey = keys.get(order);
+
+            // remove splited keys
+            List<DataBox> rightKeys = keys.subList(order, overflow);
+            List<RecordId> rightIds = rids.subList(order, overflow);
+            keys = keys.subList(0, order);
+            rids = rids.subList(0, order);
+
+            // create a new leafnode
+            LeafNode newRightSib = new LeafNode(metadata, bufferManager, rightKeys, rightIds, rightSibling,
+                    treeContext);
+            // update right sibling pointer
+            LeafNode originRightSib = getRightSibling().get();
+            rightSibling = Optional.ofNullable(newRightSib.getPage().getPageNum());
+            newRightSib.rightSibling = Optional.ofNullable(originRightSib.getPage().getPageNum());
+
+            // update buffer
+            sync();
+            // return (split_key, right_node_page_num)
+            return Optional.ofNullable(new Pair<>(splitKey, newRightSib.page.getPageNum()));
+        }
         // update buffer
         sync();
-        if (n == 2 * metadata.getOrder()) {// need split
-            // get split key
-            DataBox splitKey = keys.get(n);
-            // return pair(split_key, right_node_page_num)
-            return Optional.ofNullable(new Pair<>(splitKey, page.getPageNum() + 1));
-        }
         return Optional.empty();
     }
 
@@ -205,7 +225,7 @@ class LeafNode extends BPlusNode {
         if (!keys.contains(key)) {
             return;
         }
-        // remove from tree 
+        // remove from tree
         int n = keys.indexOf(key);
         rids.remove(n);
         keys.remove(n);
