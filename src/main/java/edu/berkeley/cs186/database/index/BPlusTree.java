@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 
+import javax.xml.crypto.Data;
+
 /**
  * A persistent B+ tree.
  *
@@ -150,8 +152,7 @@ public class BPlusTree {
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.NL);
 
         // TODO(proj2): implement
-        LeafNode leaf = root.get(key);
-        return leaf.getKey(key);
+        return root.get(key).getKey(key);
     }
 
     /**
@@ -238,7 +239,7 @@ public class BPlusTree {
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.NL);
 
         // TODO(proj2): Return a BPlusTreeIterator.
-        return new BPlusTreeIterator(root.get(key));
+        return new BPlusTreeIterator(root.get(key), Optional.ofNullable(key));
     }
 
     /**
@@ -250,7 +251,7 @@ public class BPlusTree {
      * tree.put(key, rid); // Success :)
      * tree.put(key, rid); // BPlusTreeException :(
      */
-    public void put(DataBox key, RecordId rid) {
+    public void put(DataBox key, RecordId rid) throws BPlusTreeException {
         typecheck(key);
         // TODO(proj4_integration): Update the following line
         LockUtil.ensureSufficientLockHeld(lockContext, LockType.NL);
@@ -259,10 +260,19 @@ public class BPlusTree {
         // Note: You should NOT update the root variable directly.
         // Use the provided updateRoot() helper method to change
         // the tree's root if the old root splits.
-        
-        if (root.get(key).put(key, rid).isPresent()) { // split
-            updateRoot(root);
+
+        Optional<Pair<DataBox, Long>> op = root.put(key, rid);
+        if (op.isPresent()) { // root split
+            // create a new root above this node
+            List<DataBox> newKeys = new ArrayList<>();
+            List<Long> newChildren = new ArrayList<>();
+            newKeys.add(op.get().getFirst());
+            newChildren.add(root.getPage().getPageNum());
+            newChildren.add(op.get().getSecond());
+            InnerNode newRoot = new InnerNode(metadata, bufferManager, newKeys, newChildren, lockContext);
+            updateRoot(newRoot);
         }
+
         return;
     }
 
@@ -430,16 +440,42 @@ public class BPlusTree {
         // TODO(proj2): Add whatever fields and constructors you want here.
 
         Iterator<RecordId> iterator;
+        LeafNode leafNode;
 
         public BPlusTreeIterator(LeafNode leafNode) {
             if (leafNode != null) {
+                this.leafNode = leafNode;
                 this.iterator = leafNode.scanAll();
+            }
+        }
+
+        /**
+         * @param leafNode target leafnode
+         * @param start scan start
+         */
+        public BPlusTreeIterator(LeafNode leafNode, Optional<DataBox> start) {
+            if (leafNode != null) {
+                this.leafNode = leafNode;
+                this.iterator = leafNode.scanAll();
+                start.ifPresent((DataBox key) -> {
+                    int index = InnerNode.numLessThan(key, leafNode.getKeys());
+                    while (index > 0) {
+                        this.iterator.next();
+                        index--;
+                    }
+                });
             }
         }
 
         @Override
         public boolean hasNext() {
             // TODO(proj2): implement
+            if (this.iterator != null && !this.iterator.hasNext()) {
+                this.leafNode.getRightSibling().ifPresent((LeafNode right) -> {
+                    this.leafNode = right;
+                    this.iterator = right.scanAll();
+                });
+            }
             return this.iterator != null && this.iterator.hasNext();
         }
 

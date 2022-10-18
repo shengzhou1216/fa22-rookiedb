@@ -13,7 +13,6 @@ import edu.berkeley.cs186.database.table.RecordId;
 
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.function.BinaryOperator;
 
 /**
  * A leaf of a B+ tree. Every leaf in a B+ tree of order d stores between d and
@@ -171,42 +170,39 @@ class LeafNode extends BPlusNode {
         if (keys.contains(key)) {
             throw new BPlusTreeException("insert duplicate key in leaf node.");
         }
+        // get insert position
+        int index = InnerNode.numLessThanEqual(key, keys);
+        // insert the pair(key,rid)
+        keys.add(index, key);
+        rids.add(index, rid);
 
-        // add key and rid
-        keys.add(key);
-        rids.add(rid);
-        // sort
-        Collections.sort(keys);
-        Collections.sort(rids);
-
+        // Case1: If inserting the pair (k, r) does NOT cause n to overflow, then
+        // Optional.empty() is returned.
         int order = metadata.getOrder();
         int overflow = 2 * order + 1;
-        if (keys.size() == overflow) { // need split
-            // get split key
-            DataBox splitKey = keys.get(order);
-
-            // remove splited keys
-            List<DataBox> rightKeys = keys.subList(order, overflow);
-            List<RecordId> rightIds = rids.subList(order, overflow);
-            keys = keys.subList(0, order);
-            rids = rids.subList(0, order);
-
-            // create a new leafnode
-            LeafNode newRightSib = new LeafNode(metadata, bufferManager, rightKeys, rightIds, rightSibling,
-                    treeContext);
-            // update right sibling pointer
-            LeafNode originRightSib = getRightSibling().get();
-            rightSibling = Optional.ofNullable(newRightSib.getPage().getPageNum());
-            newRightSib.rightSibling = Optional.ofNullable(originRightSib.getPage().getPageNum());
-
+        if (keys.size() < overflow) {
             // update buffer
             sync();
-            // return (split_key, right_node_page_num)
-            return Optional.ofNullable(new Pair<>(splitKey, newRightSib.page.getPageNum()));
+            return Optional.empty();
         }
-        // update buffer
+
+        // Case2: If inserting the pair (k, r) does cause the node n to overflow,
+        // then n is split into a left and right node (described more
+        // below) and a pair (split_key, right_node_page_num) is returned
+        // where right_node_page_num is the page number of the newly
+        // created right node, and the value of split_key depends on
+        // whether n is an inner node or a leaf node (described more below).
+
+        // remove splited keys
+        List<DataBox> rightKeys = keys.subList(order, overflow);
+        List<RecordId> rightIds = rids.subList(order, overflow);
+        keys = keys.subList(0, order);
+        rids = rids.subList(0, order);
+        LeafNode rightNode = new LeafNode(metadata, bufferManager, rightKeys, rightIds, rightSibling,
+                treeContext);
+        this.rightSibling = Optional.of(rightNode.getPage().getPageNum());
         sync();
-        return Optional.empty();
+        return Optional.of(new Pair<>(rightNode.getKeys().get(0), rightNode.page.getPageNum()));
     }
 
     // See BPlusNode.bulkLoad.
@@ -432,12 +428,12 @@ class LeafNode extends BPlusNode {
         Page page = bufferManager.fetchPage(treeContext, pageNum);
         Buffer buf = page.getBuffer();
 
-        byte nodeType = buf.get();
-        assert (nodeType == (byte) 1);
+        assert (buf.get() == (byte) 1);
 
         List<DataBox> keys = new ArrayList<>();
         List<RecordId> rids = new ArrayList<>();
-        Optional<Long> rightSibling = Optional.ofNullable(buf.getLong());
+        Long siblingPageId = buf.getLong();
+        Optional<Long> rightSibling = siblingPageId == -1 ? Optional.empty() : Optional.of(siblingPageId);
 
         int n = buf.getInt();
         for (long i = 0; i < n; i++) {
