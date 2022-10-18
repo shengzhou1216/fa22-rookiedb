@@ -134,8 +134,12 @@ class InnerNode extends BPlusNode {
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
             float fillFactor) {
         // TODO(proj2): implement
-
-        return Optional.empty();
+        Optional<Pair<DataBox, Long>> op = Optional.empty();
+        while (data.hasNext()) {
+            Pair<DataBox, RecordId> next = data.next();
+            op = this.put(next.getFirst(), next.getSecond());
+        }
+        return op;
     }
 
     // See BPlusNode.remove.
