@@ -134,12 +134,41 @@ class InnerNode extends BPlusNode {
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
             float fillFactor) {
         // TODO(proj2): implement
-        Optional<Pair<DataBox, Long>> op = Optional.empty();
+        //   Inner nodes should repeatedly try to bulk load the rightmost child
+        //   until either the inner node is full (in which case it should split)
+        //   or there is no more data.
+
+        // fillFactor should ONLY be used for determining how full leaf nodes are
+        //  (not inner nodes), and calculations should round up, i.e. with d=5
+        //   and fillFactor=0.75, leaf nodes should be 8/10 full.
+        Optional<Pair<DataBox, Long>> pair = Optional.empty();
+        int order = metadata.getOrder();
+        int overflow = 2 * order + 1;
         while (data.hasNext()) {
-            Pair<DataBox, RecordId> next = data.next();
-            op = this.put(next.getFirst(), next.getSecond());
+            pair = getChild(children.size()-1).bulkLoad(data, fillFactor);
+            if (pair.isPresent()) {
+                DataBox splitKey = pair.get().getFirst();
+                int index = InnerNode.numLessThanEqual(splitKey, keys);
+                // insert splitkey into parent
+                keys.add(index, splitKey);
+                children.add(index + 1, pair.get().getSecond());
+                if (keys.size() < overflow) {
+                    pair = Optional.empty();
+                } else { // current node split
+                    DataBox innserSplitKey = keys.get(order);
+                    List<DataBox> newKeys = keys.subList(order + 1, overflow);
+                    List<Long> newChildren = children.subList(order + 1, overflow + 1);
+                    keys = keys.subList(0, order);
+                    children = children.subList(0, order + 1);
+                    InnerNode rightInnerNode = new InnerNode(metadata, bufferManager, newKeys, newChildren, treeContext);
+                    pair = Optional.of(new Pair<DataBox, Long>(innserSplitKey, rightInnerNode.getPage().getPageNum()));
+                    // repeatedly try to bulk load
+                    rightInnerNode.bulkLoad(data, fillFactor);
+                }
+            }
         }
-        return op;
+        sync();
+        return pair;
     }
 
     // See BPlusNode.remove.

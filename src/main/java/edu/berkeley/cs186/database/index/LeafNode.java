@@ -210,27 +210,33 @@ class LeafNode extends BPlusNode {
     public Optional<Pair<DataBox, Long>> bulkLoad(Iterator<Pair<DataBox, RecordId>> data,
             float fillFactor) {
         // TODO(proj2): implement
+        //     Leaf nodes do not fill up to 2*d+1 and split, but rather, fill up to
+        //  * be 1 record more than fillFactor full, then "splits" by creating a right
+        //  * sibling that contains just one record (leaving the original node with
+        //  * the desired fill factor).
+        if(!data.hasNext()) {
+            return Optional.empty();
+        }
         int order = metadata.getOrder();
-        int overflow = Math.round(order * fillFactor) + 1;
-        Optional<Pair<DataBox, Long>> op = Optional.empty();
+        int overflow = Math.round(2 * order * fillFactor) + 1;
+        Optional<Pair<DataBox,Long>> op = Optional.empty();
         while (data.hasNext()) {
             Pair<DataBox, RecordId> pair = data.next();
-            int index = InnerNode.numLessThanEqual(pair.getFirst(), keys);
-            keys.add(index, pair.getFirst());
-            rids.add(index, pair.getSecond());
-            if (keys.size() < overflow) {
+            if(keys.size() + 1 < overflow) {
+                int index = InnerNode.numLessThanEqual(pair.getFirst(), keys);
+                keys.add(index,pair.getFirst());
+                rids.add(index,pair.getSecond());
                 continue;
             }
-            List<DataBox> rightKeys = keys.subList(order, overflow);
-            List<RecordId> rightIds = rids.subList(order, overflow);
-            keys = keys.subList(0, order);
-            rids = rids.subList(0, order);
-            LeafNode rightNode = new LeafNode(metadata, bufferManager, rightKeys, rightIds, rightSibling,
+            List<DataBox> rightKeys = new ArrayList<>();
+            List<RecordId> rightRids = new ArrayList<>();
+            rightKeys.add(pair.getFirst());
+            rightRids.add(pair.getSecond());
+            LeafNode rightNode = new LeafNode(metadata, bufferManager, rightKeys, rightRids, rightSibling,
                     treeContext);
             this.rightSibling = Optional.of(rightNode.getPage().getPageNum());
-            // add remains data
-            rightNode.bulkLoad(data, fillFactor);
-            op = Optional.of(new Pair<>(rightNode.getKeys().get(0), rightNode.page.getPageNum()));
+            op = Optional.of(new Pair<DataBox,Long>(pair.getFirst(),rightNode.getPage().getPageNum()));
+            break;
         }
         sync();
         return op;
